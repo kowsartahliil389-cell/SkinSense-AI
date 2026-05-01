@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SkinSense AI Pro</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial;
+      background: #0f172a;
+      color: white;
+      text-align: center;
+      padding: 30px;
+    }
+
+    .card {
+      background: #1e293b;
+      padding: 20px;
+      border-radius: 12px;
+      width: 400px;
+      margin: auto;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.4);
+    }
+
+    input[type="file"] { display: none; }
+
+    .custom-file {
+      display: inline-block;
+      padding: 10px 15px;
+      background: #38bdf8;
+      color: black;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    button {
+      padding: 10px 12px;
+      border: none;
+      border-radius: 8px;
+      background: #22c55e;
+      color: black;
+      font-weight: bold;
+      cursor: pointer;
+      margin: 5px;
+    }
+
+    video, img {
+      width: 100%;
+      max-height: 220px;
+      object-fit: cover;
+      border-radius: 10px;
+      margin-top: 10px;
+    }
+
+    #camWrapper {
+      position: relative;
+      width: 100%;
+    }
+
+    canvas.overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .bar {
+      height: 10px;
+      background: #334155;
+      border-radius: 5px;
+      margin: 5px 0;
+      overflow: hidden;
+    }
+
+    .fill {
+      height: 100%;
+      background: #22c55e;
+    }
+
+    #imageMode, #cameraMode {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+
+<div class="card">
+  <h2>SkinSense AI 🔬</h2>
+
+  <button onclick="showImageMode()">🖼️ Image Mode</button>
+  <button onclick="showCameraMode()">📸 Camera Mode</button>
+
+  <!-- IMAGE MODE -->
+  <div id="imageMode">
+    <label class="custom-file" for="imageUpload">📁 Choose Image</label>
+    <input type="file" id="imageUpload" accept="image/*" />
+    <img id="preview" />
+    <button onclick="predictImage()">Predict Image</button>
+    <div id="imageResult"></div>
+  </div>
+
+  <!-- CAMERA MODE -->
+  <div id="cameraMode">
+    <div id="camWrapper">
+      <video id="camera" autoplay playsinline></video>
+      <canvas id="overlay" class="overlay"></canvas>
+    </div>
+    <button onclick="startCamera()">Start Camera</button>
+    <button onclick="predictCamera()">Predict Camera</button>
+    <div id="cameraResult"></div>
+  </div>
+
+</div>
+
+<script>
+const modelPath = "./model/";
+let model;
+let stream = null;
+
+async function loadModel(){
+  model = await tmImage.load(modelPath + "model.json", modelPath + "metadata.json");
+}
+loadModel();
+
+function showImageMode(){
+  document.getElementById("imageMode").style.display = "block";
+  document.getElementById("cameraMode").style.display = "none";
+}
+
+function showCameraMode(){
+  document.getElementById("cameraMode").style.display = "block";
+  document.getElementById("imageMode").style.display = "none";
+}
+
+const input=document.getElementById("imageUpload");
+const preview=document.getElementById("preview");
+
+input.addEventListener("change",e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>preview.src=ev.target.result;
+  reader.readAsDataURL(file);
+});
+
+const video=document.getElementById("camera");
+const canvas=document.getElementById("overlay");
+const ctx=canvas.getContext("2d");
+
+// CAMERA START / RESUME
+async function startCamera(){
+  if(video.srcObject){
+    video.play();
+    return;
+  }
+
+  stream = await navigator.mediaDevices.getUserMedia({video:true});
+  video.srcObject = stream;
+
+  video.onloadedmetadata=()=>{
+    canvas.width=video.videoWidth;
+    canvas.height=video.videoHeight;
+  };
+}
+
+function drawBox(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.strokeStyle="#22c55e";
+  ctx.lineWidth=3;
+  ctx.strokeRect(canvas.width/4,canvas.height/4,canvas.width/2,canvas.height/2);
+}
+
+// IMAGE PREDICT
+async function predictImage(){
+  if(!model)return;
+  const file=input.files[0];
+  if(!file)return alert("Upload image first");
+
+  const img=document.createElement("img");
+  img.src=URL.createObjectURL(file);
+
+  img.onload=async()=>{
+    const p=await model.predict(img);
+    showResult(p,"image");
+  };
+}
+
+// CAMERA PREDICT (FREEZE FACE)
+async function predictCamera(){
+  if(!model)return;
+  if(video.readyState<2)return alert("Start camera first");
+
+  const p=await model.predict(video);
+  drawBox();
+  showResult(p,"camera");
+
+  // freeze frame (stop face movement)
+  video.pause();
+}
+
+function showResult(prediction,mode){
+  prediction.sort((a,b)=>b.probability-a.probability);
+
+  let html=`<h3>Result: ${prediction[0].className}</h3>`;
+
+  prediction.forEach(p=>{
+    let percent=(p.probability*100).toFixed(1);
+    html+=`<div style='text-align:left'>${p.className} (${percent}%)<div class='bar'><div class='fill' style='width:${percent}%'></div></div></div>`;
+  });
+
+  if(mode === "image"){
+    document.getElementById("imageResult").innerHTML = html;
+  } else {
+    document.getElementById("cameraResult").innerHTML = html;
+  }
+}
+</script>
+
+</body>
+</html>
